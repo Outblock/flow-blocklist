@@ -1,4 +1,3 @@
-import { serve } from '@hono/node-server'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { logger } from 'hono/logger'
@@ -15,8 +14,12 @@ console.log('Root directory:', rootDir)
 const app = new Hono()
 
 // Middleware
-app.use('*', cors())
-app.use('*', logger())
+app.use('*', cors({
+  origin: '*',
+  allowHeaders: ['Content-Type', 'Authorization'],
+  allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  maxAge: 86400,
+}))
 
 // Cache for blocklists
 let cache = {
@@ -228,6 +231,7 @@ app.get('/api/check/flow-evm/:address', (c) => {
 // Initialize server for local development
 if (import.meta.url === `file://${process.argv[1]}`) {
   const port = process.env.PORT || 3000
+  const { serve } = await import('@hono/node-server')
   serve({
     fetch: app.fetch,
     port
@@ -236,5 +240,10 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   })
 }
 
-// Export the fetch handler for Vercel
-export default app.fetch 
+// Create handler for Vercel
+const vercelHandler = async (req) => {
+  return app.fetch(req)
+}
+
+// Export the handler for Vercel
+export default vercelHandler 
