@@ -174,6 +174,27 @@ app.get('/health', (req, res) => {
   res.json({ status: 'healthy' });
 });
 
+app.get('/api/domain', (req, res) => {
+  res.json({
+    flow: cache.flowDomains,
+    evm: cache.flowEvmDomains
+  });
+});
+
+app.get('/api/token', (req, res) => {
+  res.json({
+    flow: cache.flowTokens,
+    evm: cache.flowEvmTokens
+  });
+});
+
+app.get('/api/nft', (req, res) => {
+  res.json({
+    flow: cache.flowNFTs,
+    evm: cache.flowEvmNFTs
+  });
+});
+
 // Check Flow domain
 app.get('/api/check/flow/domain/:domain', (req, res) => {
   const domain = req.params.domain.toLowerCase();
