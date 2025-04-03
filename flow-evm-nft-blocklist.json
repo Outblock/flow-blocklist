@@ -1,6 +1,8 @@
 {
   "addresses": [
-    "0x1234567890abcdef",
-    "0xabcdef1234567890"
+    "0x2345678901234567890123456789012345678901",
+    "0xbcdef0123456789abcdef0123456789abcdef012",
+    "0xa987654321fedcba9876543210fedcba9876543",
+    "0xeadbeefdeadbeefdeadbeefdeadbeefdeadbeef0"
   ]
 } 
