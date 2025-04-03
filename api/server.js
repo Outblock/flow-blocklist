@@ -43,15 +43,18 @@ async function loadBlocklists() {
       'flow-evm-nft-blocklist.json'
     ]
 
-    for (const file of files) {
-      try {
-        const filePath = path.join(rootDir, file)
-        await fs.access(filePath)
-        console.log(`File exists: ${file}`)
-      } catch (err) {
-        console.error(`File not found: ${file}`)
-      }
-    }
+    const fileContents = await Promise.all(
+      files.map(async (file) => {
+        try {
+          const content = await fs.readFile(path.join(rootDir, file), 'utf8')
+          console.log(`Loaded ${file}`)
+          return JSON.parse(content)
+        } catch (err) {
+          console.error(`Error loading ${file}:`, err)
+          return {}
+        }
+      })
+    )
 
     const [
       flowDomains,
@@ -60,26 +63,19 @@ async function loadBlocklists() {
       flowNFTs,
       flowEvmTokens,
       flowEvmNFTs
-    ] = await Promise.all([
-      fs.readFile(path.join(rootDir, 'dapp-blocklist.json'), 'utf8'),
-      fs.readFile(path.join(rootDir, 'flow-evm-dapp-blocklist.json'), 'utf8'),
-      fs.readFile(path.join(rootDir, 'token-blocklist.json'), 'utf8'),
-      fs.readFile(path.join(rootDir, 'nft-blocklist.json'), 'utf8'),
-      fs.readFile(path.join(rootDir, 'flow-evm-token-blocklist.json'), 'utf8'),
-      fs.readFile(path.join(rootDir, 'flow-evm-nft-blocklist.json'), 'utf8')
-    ])
+    ] = fileContents
 
-    cache.flowDomains = JSON.parse(flowDomains).domains || []
-    cache.flowEvmDomains = JSON.parse(flowEvmDomains).domains || []
-    cache.flowTokens = JSON.parse(flowTokens).identifiers || []
-    cache.flowNFTs = JSON.parse(flowNFTs).identifiers || []
-    cache.flowEvmTokens = JSON.parse(flowEvmTokens).addresses || []
-    cache.flowEvmNFTs = JSON.parse(flowEvmNFTs).addresses || []
+    cache.flowDomains = flowDomains.domains || []
+    cache.flowEvmDomains = flowEvmDomains.domains || []
+    cache.flowTokens = flowTokens.identifiers || []
+    cache.flowNFTs = flowNFTs.identifiers || []
+    cache.flowEvmTokens = flowEvmTokens.addresses || []
+    cache.flowEvmNFTs = flowEvmNFTs.addresses || []
 
     console.log('Cache after loading:', cache)
   } catch (error) {
     console.error('Error loading blocklists:', error)
-    throw error
+    // Don't throw error, just log it and continue with empty cache
   }
 }
 
@@ -95,7 +91,7 @@ app.use('*', async (c, next) => {
     try {
       await loadBlocklists()
     } catch (error) {
-      return c.json({ error: 'Failed to load blocklists' }, 500)
+      console.error('Failed to load blocklists:', error)
     }
   }
   await next()
@@ -229,27 +225,16 @@ app.get('/api/check/flow-evm/:address', (c) => {
   })
 })
 
-// Initialize server
-async function initializeServer() {
-  try {
-    await loadBlocklists()
-    if (import.meta.url === `file://${process.argv[1]}`) {
-      const port = process.env.PORT || 3000
-      serve({
-        fetch: app.fetch,
-        port
-      }, (info) => {
-        console.log(`Server running on port ${info.port}`)
-      })
-    }
-  } catch (error) {
-    console.error('Failed to initialize server:', error)
-    process.exit(1)
-  }
+// Initialize server for local development
+if (import.meta.url === `file://${process.argv[1]}`) {
+  const port = process.env.PORT || 3000
+  serve({
+    fetch: app.fetch,
+    port
+  }, (info) => {
+    console.log(`Server running on port ${info.port}`)
+  })
 }
 
-// Start server
-initializeServer()
-
-// Export for serverless
-export default app 
+// Export the fetch handler for Vercel
+export default app.fetch 
