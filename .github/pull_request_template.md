@@ -3,8 +3,8 @@
 
 **Updated Lists:**
 - [ ] Flow dApp Domains
-- [ ] Flow-EVM dApp Domains
 - [ ] Flow Tokens
 - [ ] Flow NFTs
+- [ ] Flow-EVM dApp Domains
 - [ ] Flow-EVM Tokens
 - [ ] Flow-EVM NFTs
