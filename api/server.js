@@ -5,21 +5,24 @@ import fs from 'fs/promises'
 import path from 'path'
 import { fileURLToPath } from 'url'
 
-const __filename = fileURLToPath(import.meta.url)
-const __dirname = path.dirname(__filename)
-const rootDir = path.join(__dirname, '..')
-
-console.log('Root directory:', rootDir)
-
 const app = new Hono()
 
-// Middleware
-app.use('*', cors({
-  origin: '*',
-  allowHeaders: ['Content-Type', 'Authorization'],
-  allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  maxAge: 86400,
-}))
+// CORS middleware
+app.use('*', async (c, next) => {
+  c.res.headers.set('Access-Control-Allow-Origin', '*')
+  c.res.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
+  c.res.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+  c.res.headers.set('Access-Control-Max-Age', '86400')
+
+  if (c.req.method === 'OPTIONS') {
+    return new Response(null, {
+      status: 204,
+      headers: c.res.headers
+    })
+  }
+
+  await next()
+})
 
 // Cache for blocklists
 let cache = {
@@ -34,9 +37,13 @@ let cache = {
 // Load blocklists into memory
 async function loadBlocklists() {
   try {
-    console.log('Loading blocklists from:', rootDir)
+    // Determine if we're in Vercel or local environment
+    const isVercel = process.env.VERCEL === '1'
+    const rootDir = isVercel ? '/var/task' : path.join(path.dirname(fileURLToPath(import.meta.url)), '..')
     
-    // Check if files exist
+    console.log('Environment:', isVercel ? 'Vercel' : 'Local')
+    console.log('Root directory:', rootDir)
+    
     const files = [
       'dapp-blocklist.json',
       'flow-evm-dapp-blocklist.json',
@@ -49,11 +56,13 @@ async function loadBlocklists() {
     const fileContents = await Promise.all(
       files.map(async (file) => {
         try {
-          const content = await fs.readFile(path.join(rootDir, file), 'utf8')
-          console.log(`Loaded ${file}`)
+          const filePath = path.join(rootDir, file)
+          console.log(`Attempting to load ${filePath}`)
+          const content = await fs.readFile(filePath, 'utf8')
+          console.log(`Successfully loaded ${file}`)
           return JSON.parse(content)
         } catch (err) {
-          console.error(`Error loading ${file}:`, err)
+          console.error(`Error loading ${file}:`, err.message)
           return {}
         }
       })
@@ -68,17 +77,26 @@ async function loadBlocklists() {
       flowEvmNFTs
     ] = fileContents
 
-    cache.flowDomains = flowDomains.domains || []
-    cache.flowEvmDomains = flowEvmDomains.domains || []
-    cache.flowTokens = flowTokens.identifiers || []
-    cache.flowNFTs = flowNFTs.identifiers || []
-    cache.flowEvmTokens = flowEvmTokens.addresses || []
-    cache.flowEvmNFTs = flowEvmNFTs.addresses || []
+    cache = {
+      flowDomains: flowDomains.domains || [],
+      flowEvmDomains: flowEvmDomains.domains || [],
+      flowTokens: flowTokens.identifiers || [],
+      flowNFTs: flowNFTs.identifiers || [],
+      flowEvmTokens: flowEvmTokens.addresses || [],
+      flowEvmNFTs: flowEvmNFTs.addresses || []
+    }
 
-    console.log('Cache after loading:', cache)
+    console.log('Cache loaded with entries:', {
+      flowDomains: cache.flowDomains.length,
+      flowEvmDomains: cache.flowEvmDomains.length,
+      flowTokens: cache.flowTokens.length,
+      flowNFTs: cache.flowNFTs.length,
+      flowEvmTokens: cache.flowEvmTokens.length,
+      flowEvmNFTs: cache.flowEvmNFTs.length
+    })
   } catch (error) {
-    console.error('Error loading blocklists:', error)
-    // Don't throw error, just log it and continue with empty cache
+    console.error('Error loading blocklists:', error.message)
+    // Continue with empty cache
   }
 }
 
@@ -228,21 +246,27 @@ app.get('/api/check/flow-evm/:address', (c) => {
   })
 })
 
-// Initialize server for local development
-if (import.meta.url === `file://${process.argv[1]}`) {
-  const port = process.env.PORT || 3000
-  const { serve } = await import('@hono/node-server')
-  serve({
-    fetch: app.fetch,
-    port
-  }, (info) => {
-    console.log(`Server running on port ${info.port}`)
-  })
-}
-
 // Create handler for Vercel
 const vercelHandler = async (req) => {
-  return app.fetch(req)
+  try {
+    // Load blocklists if not loaded
+    if (cache.flowDomains.length === 0) {
+      await loadBlocklists()
+    }
+    
+    return app.fetch(req)
+  } catch (error) {
+    console.error('Error handling request:', error)
+    return new Response(JSON.stringify({ error: 'Internal Server Error' }), {
+      status: 500,
+      headers: {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization'
+      }
+    })
+  }
 }
 
 // Export the handler for Vercel
