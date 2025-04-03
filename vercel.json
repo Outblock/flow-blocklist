@@ -23,11 +23,5 @@
       "src": "/(.*)\\.json",
       "dest": "/$1.json"
     }
-  ],
-  "rewrites": [
-    {
-      "source": "/api/(.*)",
-      "destination": "/api"
-    }
   ]
 } 
