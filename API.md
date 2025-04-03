@@ -1,6 +1,6 @@
 # Flow Blocklist API Documentation
 
-The Flow Blocklist API provides endpoints to check if a domain, token, or NFT is known to be malicious.
+The Flow Blocklist API provides endpoints to check if a domain, token, or NFT is known to be malicious across both Flow and Flow-EVM networks.
 
 ## Structure
 
@@ -18,13 +18,16 @@ The repository contains several blocklist files:
 http://localhost:3000
 ```
 
+For production deployments, replace with your deployed API URL.
+
 ## Endpoints
 
-### Search
+### Search Across All Blocklists
 ```http
 GET /api/search?q=searchterm
 ```
-Search across all blocklists with substring matching.
+
+Search across all blocklists with case-insensitive substring matching.
 
 **Parameters**
 - `q`: Search query (required) - Can be a partial domain, address, or identifier
@@ -32,53 +35,80 @@ Search across all blocklists with substring matching.
 **Response**
 ```json
 {
-  "query": "0x123",
+  "query": "flow",
   "matches": [
     {
-      "value": "0x1234567890abcdef",
-      "type": "flow-evm-token"
+      "value": "fake-flow-mint.com",
+      "type": "flow-domain"
     },
     {
-      "value": "0x123456789abcdef",
-      "type": "flow-evm-nft"
+      "value": "flow-evm-airdrop.com",
+      "type": "flow-evm-domain"
+    },
+    {
+      "value": "A.1234567890abcdef.FlowToken",
+      "type": "flow-token"
     }
   ]
 }
 ```
 
-**Match Types**
-- `flow-domain`: Malicious Flow domain
-- `flow-evm-domain`: Malicious Flow-EVM domain
-- `flow-token`: Malicious Flow token
-- `flow-nft`: Malicious Flow NFT
-- `flow-evm-token`: Malicious Flow-EVM token
-- `flow-evm-nft`: Malicious Flow-EVM NFT
-
-### Health Check
+### List All Domains
 ```http
-GET /health
+GET /api/domain
 ```
-Check if the API is running.
+
+Get all malicious domains from both Flow and Flow-EVM networks.
 
 **Response**
 ```json
 {
-  "status": "healthy"
+  "flow": [
+    "fake-flow-mint.com",
+    "flowblockchain-airdrop.com"
+  ],
+  "evm": [
+    "fake-flow-evm-mint.com",
+    "flow-evm-airdrop.com"
+  ]
 }
 ```
 
-### Check Any Identifier (Universal Endpoint)
+### List All Tokens
 ```http
-GET /api/check/:identifier
+GET /api/token
 ```
-Check if any identifier (domain, Flow identifier, or Flow-EVM address) is malicious.
+
+Get all malicious token identifiers from both networks.
 
 **Response**
 ```json
 {
-  "identifier": "example.com",
-  "isMalicious": true,
-  "type": "flow-domain"
+  "flow": [
+    "A.1234567890abcdef.FlowToken"
+  ],
+  "evm": [
+    "0x1234567890123456789012345678901234567890"
+  ]
+}
+```
+
+### List All NFTs
+```http
+GET /api/nft
+```
+
+Get all malicious NFT identifiers from both networks.
+
+**Response**
+```json
+{
+  "flow": [
+    "A.01cf0e2f2f715450.FakeNFT"
+  ],
+  "evm": [
+    "0x2345678901234567890123456789012345678901"
+  ]
 }
 ```
 
@@ -86,12 +116,13 @@ Check if any identifier (domain, Flow identifier, or Flow-EVM address) is malici
 ```http
 GET /api/check/flow/domain/:domain
 ```
-Check if a domain is malicious in Flow network.
+
+Check if a domain is malicious in the Flow network.
 
 **Response**
 ```json
 {
-  "domain": "example.com",
+  "domain": "fake-flow-mint.com",
   "isMalicious": true,
   "type": "flow-domain"
 }
@@ -101,12 +132,13 @@ Check if a domain is malicious in Flow network.
 ```http
 GET /api/check/flow-evm/domain/:domain
 ```
-Check if a domain is malicious in Flow-EVM network.
+
+Check if a domain is malicious in the Flow-EVM network.
 
 **Response**
 ```json
 {
-  "domain": "example.com",
+  "domain": "fake-flow-evm-mint.com",
   "isMalicious": true,
   "type": "flow-evm-domain"
 }
@@ -116,12 +148,13 @@ Check if a domain is malicious in Flow-EVM network.
 ```http
 GET /api/check/flow/:identifier
 ```
+
 Check if a Flow token or NFT identifier is malicious.
 
 **Response**
 ```json
 {
-  "identifier": "A.1234567890abcdef.FFLOW",
+  "identifier": "A.1234567890abcdef.FlowToken",
   "isMalicious": true,
   "type": "flow-token"
 }
@@ -131,32 +164,67 @@ Check if a Flow token or NFT identifier is malicious.
 ```http
 GET /api/check/flow-evm/:address
 ```
+
 Check if a Flow-EVM token or NFT address is malicious.
 
 **Response**
 ```json
 {
-  "address": "0x1234567890abcdef",
+  "address": "0x1234567890123456789012345678901234567890",
   "isMalicious": true,
   "type": "flow-evm-token"
+}
+```
+
+### Health Check
+```http
+GET /health
+```
+
+Check if the API is running.
+
+**Response**
+```json
+{
+  "status": "healthy"
 }
 ```
 
 ## Response Types
 
 The `type` field in responses can be one of:
-- `"flow-domain"`: For malicious Flow domains
-- `"flow-evm-domain"`: For malicious Flow-EVM domains
-- `"flow-token"`: For malicious Flow tokens
-- `"flow-nft"`: For malicious Flow NFTs
-- `"flow-evm-token"`: For malicious Flow-EVM tokens
-- `"flow-evm-nft"`: For malicious Flow-EVM NFTs
-- `"unknown"`: If the identifier is not found in any blocklist
+- `"flow-domain"`: Malicious Flow domain
+- `"flow-evm-domain"`: Malicious Flow-EVM domain
+- `"flow-token"`: Malicious Flow token
+- `"flow-nft"`: Malicious Flow NFT
+- `"flow-evm-token"`: Malicious Flow-EVM token
+- `"flow-evm-nft"`: Malicious Flow-EVM NFT
+- `"unknown"`: Not found in any blocklist
 
-## Error Handling
+## Error Responses
 
-- 400 Bad Request: Missing or invalid query parameter
-- 500 Internal Server Error: Server-side issues
+### 400 Bad Request
+```json
+{
+  "error": "Query parameter \"q\" is required"
+}
+```
+
+### 500 Internal Server Error
+```json
+{
+  "error": "Failed to load blocklists"
+}
+```
+
+## Notes
+
+- All searches are case-insensitive
+- Substring matching is supported for search endpoint
+- Exact matching is used for specific check endpoints
+- Empty search queries will return a 400 error
+- The server caches blocklists in memory for better performance
+- Blocklists are reloaded automatically when needed
 
 ## Examples
 
@@ -165,19 +233,17 @@ The `type` field in responses can be one of:
 GET /api/search?q=flow-mint
 ```
 
-2. Search for a partial Flow identifier:
+2. Check a specific Flow token:
 ```
-GET /api/search?q=A.1234
-```
-
-3. Search for a partial EVM address:
-```
-GET /api/search?q=0x123
+GET /api/check/flow/A.1234567890abcdef.FlowToken
 ```
 
-## Notes
+3. Check a Flow-EVM NFT address:
+```
+GET /api/check/flow-evm/0x1234567890123456789012345678901234567890
+```
 
-- Searches are case-insensitive
-- Substring matches are supported
-- Empty query parameter will return a 400 error
-- No matches will return an empty matches array 
+4. Get all malicious domains:
+```
+GET /api/domain
+``` 
