@@ -1,28 +1,14 @@
 import { Hono } from 'hono'
-import { cors } from 'hono/cors'
-import { logger } from 'hono/logger'
+import { handle } from 'hono/vercel'
 import fs from 'fs/promises'
 import path from 'path'
 import { fileURLToPath } from 'url'
 
-const app = new Hono()
+export const config = {
+  runtime: 'edge'
+}
 
-// CORS middleware
-app.use('*', async (c, next) => {
-  c.res.headers.set('Access-Control-Allow-Origin', '*')
-  c.res.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
-  c.res.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization')
-  c.res.headers.set('Access-Control-Max-Age', '86400')
-
-  if (c.req.method === 'OPTIONS') {
-    return new Response(null, {
-      status: 204,
-      headers: c.res.headers
-    })
-  }
-
-  await next()
-})
+const app = new Hono().basePath('/api')
 
 // Cache for blocklists
 let cache = {
@@ -37,13 +23,6 @@ let cache = {
 // Load blocklists into memory
 async function loadBlocklists() {
   try {
-    // Determine if we're in Vercel or local environment
-    const isVercel = process.env.VERCEL === '1'
-    const rootDir = isVercel ? '/var/task' : path.join(path.dirname(fileURLToPath(import.meta.url)), '..')
-    
-    console.log('Environment:', isVercel ? 'Vercel' : 'Local')
-    console.log('Root directory:', rootDir)
-    
     const files = [
       'dapp-blocklist.json',
       'flow-evm-dapp-blocklist.json',
@@ -56,9 +35,7 @@ async function loadBlocklists() {
     const fileContents = await Promise.all(
       files.map(async (file) => {
         try {
-          const filePath = path.join(rootDir, file)
-          console.log(`Attempting to load ${filePath}`)
-          const content = await fs.readFile(filePath, 'utf8')
+          const content = await fs.readFile(file, 'utf8')
           console.log(`Successfully loaded ${file}`)
           return JSON.parse(content)
         } catch (err) {
@@ -119,7 +96,7 @@ app.use('*', async (c, next) => {
 })
 
 // Unified search endpoint with exact substring matching
-app.get('/api/search', async (c) => {
+app.get('/search', async (c) => {
   const query = c.req.query('q')?.toLowerCase()
   if (!query) {
     return c.json({
@@ -185,23 +162,23 @@ app.get('/api/search', async (c) => {
 app.get('/health', (c) => c.json({ status: 'healthy' }))
 
 // List endpoints
-app.get('/api/domain', (c) => c.json({
+app.get('/domain', (c) => c.json({
   flow: cache.flowDomains,
   evm: cache.flowEvmDomains
 }))
 
-app.get('/api/token', (c) => c.json({
+app.get('/token', (c) => c.json({
   flow: cache.flowTokens,
   evm: cache.flowEvmTokens
 }))
 
-app.get('/api/nft', (c) => c.json({
+app.get('/nft', (c) => c.json({
   flow: cache.flowNFTs,
   evm: cache.flowEvmNFTs
 }))
 
 // Check Flow domain
-app.get('/api/check/flow/domain/:domain', (c) => {
+app.get('/check/flow/domain/:domain', (c) => {
   const domain = c.req.param('domain').toLowerCase()
   const isMalicious = cache.flowDomains.some(d => d.toLowerCase() === domain)
   return c.json({
@@ -212,7 +189,7 @@ app.get('/api/check/flow/domain/:domain', (c) => {
 })
 
 // Check Flow-EVM domain
-app.get('/api/check/flow-evm/domain/:domain', (c) => {
+app.get('/check/flow-evm/domain/:domain', (c) => {
   const domain = c.req.param('domain').toLowerCase()
   const isMalicious = cache.flowEvmDomains.some(d => d.toLowerCase() === domain)
   return c.json({
@@ -223,7 +200,7 @@ app.get('/api/check/flow-evm/domain/:domain', (c) => {
 })
 
 // Check Flow identifier
-app.get('/api/check/flow/:identifier', (c) => {
+app.get('/check/flow/:identifier', (c) => {
   const identifier = c.req.param('identifier')
   const isToken = cache.flowTokens.includes(identifier)
   const isNFT = cache.flowNFTs.includes(identifier)
@@ -235,7 +212,7 @@ app.get('/api/check/flow/:identifier', (c) => {
 })
 
 // Check Flow-EVM address
-app.get('/api/check/flow-evm/:address', (c) => {
+app.get('/check/flow-evm/:address', (c) => {
   const address = c.req.param('address')
   const isToken = cache.flowEvmTokens.includes(address)
   const isNFT = cache.flowEvmNFTs.includes(address)
@@ -246,28 +223,11 @@ app.get('/api/check/flow-evm/:address', (c) => {
   })
 })
 
-// Create handler for Vercel
-const vercelHandler = async (req) => {
-  try {
-    // Load blocklists if not loaded
-    if (cache.flowDomains.length === 0) {
-      await loadBlocklists()
-    }
-    
-    return app.fetch(req)
-  } catch (error) {
-    console.error('Error handling request:', error)
-    return new Response(JSON.stringify({ error: 'Internal Server Error' }), {
-      status: 500,
-      headers: {
-        'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type, Authorization'
-      }
-    })
-  }
-}
-
-// Export the handler for Vercel
-export default vercelHandler 
+// Export Vercel Edge handler
+export const GET = handle(app)
+export const POST = handle(app)
+export const PUT = handle(app)
+export const DELETE = handle(app)
+export const PATCH = handle(app)
+export const HEAD = handle(app)
+export const OPTIONS = handle(app) 
