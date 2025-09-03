@@ -12,12 +12,16 @@
   ],
   "routes": [
     {
-      "src": "/(.*)\\.json",
-      "dest": "/$1.json"
+      "src": "/api/(.*)",
+      "dest": "/api/server.js"
     },
     {
-      "src": "/(.*)",
+      "src": "/health",
       "dest": "/api/server.js"
+    },
+    {
+      "src": "/(.*)\\.json",
+      "dest": "/$1.json"
     }
   ]
 } 

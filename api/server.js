@@ -1,20 +1,14 @@
-import express from 'express';
-import cors from 'cors';
-import fs from 'fs/promises';
-import path from 'path';
-import { fileURLToPath } from 'url';
+import { Hono } from 'hono'
+import { handle } from 'hono/vercel'
+import fs from 'fs/promises'
+import path from 'path'
+import { fileURLToPath } from 'url'
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const rootDir = path.join(__dirname, '..');
+export const config = {
+  runtime: 'edge'
+}
 
-console.log('Root directory:', rootDir);
-
-const app = express();
-
-// Middleware
-app.use(cors());
-app.use(express.json());
+const app = new Hono().basePath('/api')
 
 // Cache for blocklists
 let cache = {
@@ -24,32 +18,32 @@ let cache = {
   flowNFTs: [],
   flowEvmTokens: [],
   flowEvmNFTs: []
-};
+}
 
 // Load blocklists into memory
 async function loadBlocklists() {
   try {
-    console.log('Loading blocklists from:', rootDir);
-    
-    // Check if files exist
     const files = [
       'dapp-blocklist.json',
+      'flow-evm-dapp-blocklist.json',
       'token-blocklist.json',
       'nft-blocklist.json',
-      'flow-evm-dapp-blocklist.json',
       'flow-evm-token-blocklist.json',
       'flow-evm-nft-blocklist.json'
-    ];
+    ]
 
-    for (const file of files) {
-      try {
-        const filePath = path.join(rootDir, file);
-        await fs.access(filePath);
-        console.log(`File exists: ${file}`);
-      } catch (err) {
-        console.error(`File not found: ${file}`);
-      }
-    }
+    const fileContents = await Promise.all(
+      files.map(async (file) => {
+        try {
+          const content = await fs.readFile(file, 'utf8')
+          console.log(`Successfully loaded ${file}`)
+          return JSON.parse(content)
+        } catch (err) {
+          console.error(`Error loading ${file}:`, err.message)
+          return {}
+        }
+      })
+    )
 
     const [
       flowDomains,
@@ -58,103 +52,98 @@ async function loadBlocklists() {
       flowNFTs,
       flowEvmTokens,
       flowEvmNFTs
-    ] = await Promise.all([
-      fs.readFile(path.join(rootDir, 'dapp-blocklist.json'), 'utf8'),
-      fs.readFile(path.join(rootDir, 'flow-evm-dapp-blocklist.json'), 'utf8'),
-      fs.readFile(path.join(rootDir, 'token-blocklist.json'), 'utf8'),
-      fs.readFile(path.join(rootDir, 'nft-blocklist.json'), 'utf8'),
-      fs.readFile(path.join(rootDir, 'flow-evm-token-blocklist.json'), 'utf8'),
-      fs.readFile(path.join(rootDir, 'flow-evm-nft-blocklist.json'), 'utf8')
-    ]);
+    ] = fileContents
 
-    console.log('Flow domains content:', flowDomains);
+    cache = {
+      flowDomains: flowDomains.domains || [],
+      flowEvmDomains: flowEvmDomains.domains || [],
+      flowTokens: flowTokens.identifiers || [],
+      flowNFTs: flowNFTs.identifiers || [],
+      flowEvmTokens: flowEvmTokens.addresses || [],
+      flowEvmNFTs: flowEvmNFTs.addresses || []
+    }
 
-    cache.flowDomains = JSON.parse(flowDomains).domains || [];
-    cache.flowTokens = JSON.parse(flowTokens).identifiers || [];
-    cache.flowNFTs = JSON.parse(flowNFTs).identifiers || [];
-    cache.flowEvmDomains = JSON.parse(flowEvmDomains).domains || [];
-    cache.flowEvmTokens = JSON.parse(flowEvmTokens).addresses || [];
-    cache.flowEvmNFTs = JSON.parse(flowEvmNFTs).addresses || [];
-
-    console.log('Cache after loading:', cache);
+    console.log('Cache loaded with entries:', {
+      flowDomains: cache.flowDomains.length,
+      flowEvmDomains: cache.flowEvmDomains.length,
+      flowTokens: cache.flowTokens.length,
+      flowNFTs: cache.flowNFTs.length,
+      flowEvmTokens: cache.flowEvmTokens.length,
+      flowEvmNFTs: cache.flowEvmNFTs.length
+    })
   } catch (error) {
-    console.error('Error loading blocklists:', error);
-    throw error; // Re-throw to handle in the startup
+    console.error('Error loading blocklists:', error.message)
+    // Continue with empty cache
   }
 }
 
 // Simple search function
 function simpleSearch(query, list) {
-  query = query.toLowerCase();
-  return list.filter(item => item.toLowerCase().includes(query));
+  query = query.toLowerCase()
+  return list.filter(item => item.toLowerCase().includes(query))
 }
 
 // Middleware to ensure blocklists are loaded
-app.use(async (req, res, next) => {
+app.use('*', async (c, next) => {
   if (cache.flowDomains.length === 0) {
     try {
-      await loadBlocklists();
+      await loadBlocklists()
     } catch (error) {
-      return res.status(500).json({ error: 'Failed to load blocklists' });
+      console.error('Failed to load blocklists:', error)
     }
   }
-  next();
-});
+  await next()
+})
 
 // Unified search endpoint with exact substring matching
-app.get('/api/search', (req, res) => {
-  const query = req.query.q?.toLowerCase() || '';
+app.get('/search', async (c) => {
+  const query = c.req.query('q')?.toLowerCase()
   if (!query) {
-    return res.status(400).json({
+    return c.json({
       error: 'Query parameter "q" is required'
-    });
+    }, 400)
   }
-
-  console.log('Current cache state:', cache);
-  console.log('Search query:', query);
 
   const results = {
     matches: [],
     query
-  };
+  }
 
   // Search in Flow domains
   const flowDomainMatches = simpleSearch(query, cache.flowDomains).map(domain => ({
     value: domain,
     type: 'flow-domain'
-  }));
-
-  console.log('Flow domain matches:', flowDomainMatches);
+  }))
 
   // Search in Flow-EVM domains
   const flowEvmDomainMatches = simpleSearch(query, cache.flowEvmDomains).map(domain => ({
     value: domain,
     type: 'flow-evm-domain'
-  }));
+  }))
 
   // Search in Flow tokens
   const flowTokenMatches = simpleSearch(query, cache.flowTokens).map(token => ({
     value: token,
     type: 'flow-token'
-  }));
+  }))
 
   // Search in Flow NFTs
   const flowNFTMatches = simpleSearch(query, cache.flowNFTs).map(nft => ({
     value: nft,
     type: 'flow-nft'
-  }));
+  }))
 
   // Search in Flow-EVM tokens
   const flowEvmTokenMatches = simpleSearch(query, cache.flowEvmTokens).map(token => ({
     value: token,
     type: 'flow-evm-token'
-  }));
+  }))
 
   // Search in Flow-EVM NFTs
   const flowEvmNFTMatches = simpleSearch(query, cache.flowEvmNFTs).map(nft => ({
     value: nft,
     type: 'flow-evm-nft'
-  }));
+  }))
 
   // Combine all matches
   results.matches = [
@@ -164,101 +153,81 @@ app.get('/api/search', (req, res) => {
     ...flowNFTMatches,
     ...flowEvmTokenMatches,
     ...flowEvmNFTMatches
-  ];
+  ]
 
-  res.json(results);
-});
+  return c.json(results)
+})
 
 // Health check endpoint
-app.get('/health', (req, res) => {
-  res.json({ status: 'healthy' });
-});
+app.get('/health', (c) => c.json({ status: 'healthy' }))
 
-app.get('/api/domain', (req, res) => {
-  res.json({
-    flow: cache.flowDomains,
-    evm: cache.flowEvmDomains
-  });
-});
+// List endpoints
+app.get('/domain', (c) => c.json({
+  flow: cache.flowDomains,
+  evm: cache.flowEvmDomains
+}))
 
-app.get('/api/token', (req, res) => {
-  res.json({
-    flow: cache.flowTokens,
-    evm: cache.flowEvmTokens
-  });
-});
+app.get('/token', (c) => c.json({
+  flow: cache.flowTokens,
+  evm: cache.flowEvmTokens
+}))
 
-app.get('/api/nft', (req, res) => {
-  res.json({
-    flow: cache.flowNFTs,
-    evm: cache.flowEvmNFTs
-  });
-});
+app.get('/nft', (c) => c.json({
+  flow: cache.flowNFTs,
+  evm: cache.flowEvmNFTs
+}))
 
 // Check Flow domain
-app.get('/api/check/flow/domain/:domain', (req, res) => {
-  const domain = req.params.domain.toLowerCase();
-  const isMalicious = cache.flowDomains.some(d => d.toLowerCase() === domain);
-  res.json({
+app.get('/check/flow/domain/:domain', (c) => {
+  const domain = c.req.param('domain').toLowerCase()
+  const isMalicious = cache.flowDomains.some(d => d.toLowerCase() === domain)
+  return c.json({
     domain,
     isMalicious,
     type: isMalicious ? 'flow-domain' : 'unknown'
-  });
-});
+  })
+})
 
 // Check Flow-EVM domain
-app.get('/api/check/flow-evm/domain/:domain', (req, res) => {
-  const domain = req.params.domain.toLowerCase();
-  const isMalicious = cache.flowEvmDomains.some(d => d.toLowerCase() === domain);
-  res.json({
+app.get('/check/flow-evm/domain/:domain', (c) => {
+  const domain = c.req.param('domain').toLowerCase()
+  const isMalicious = cache.flowEvmDomains.some(d => d.toLowerCase() === domain)
+  return c.json({
     domain,
     isMalicious,
     type: isMalicious ? 'flow-evm-domain' : 'unknown'
-  });
-});
+  })
+})
 
 // Check Flow identifier
-app.get('/api/check/flow/:identifier', (req, res) => {
-  const identifier = req.params.identifier;
-  const isToken = cache.flowTokens.includes(identifier);
-  const isNFT = cache.flowNFTs.includes(identifier);
-  res.json({
+app.get('/check/flow/:identifier', (c) => {
+  const identifier = c.req.param('identifier')
+  const isToken = cache.flowTokens.includes(identifier)
+  const isNFT = cache.flowNFTs.includes(identifier)
+  return c.json({
     identifier,
     isMalicious: isToken || isNFT,
     type: isToken ? 'flow-token' : (isNFT ? 'flow-nft' : 'unknown')
-  });
-});
+  })
+})
 
 // Check Flow-EVM address
-app.get('/api/check/flow-evm/:address', (req, res) => {
-  const address = req.params.address;
-  const isToken = cache.flowEvmTokens.includes(address);
-  const isNFT = cache.flowEvmNFTs.includes(address);
-  res.json({
+app.get('/check/flow-evm/:address', (c) => {
+  const address = c.req.param('address')
+  const isToken = cache.flowEvmTokens.includes(address)
+  const isNFT = cache.flowEvmNFTs.includes(address)
+  return c.json({
     address,
     isMalicious: isToken || isNFT,
     type: isToken ? 'flow-evm-token' : (isNFT ? 'flow-evm-nft' : 'unknown')
-  });
-});
+  })
+})
 
-// Initialize server
-async function initializeServer() {
-  try {
-    await loadBlocklists();
-    if (import.meta.url === `file://${process.argv[1]}`) {
-      const port = process.env.PORT || 3000;
-      app.listen(port, () => {
-        console.log(`Server running on port ${port}`);
-      });
-    }
-  } catch (error) {
-    console.error('Failed to initialize server:', error);
-    process.exit(1);
-  }
-}
-
-// Start server
-initializeServer();
-
-// Export for serverless
-export default app; 
+// Export Vercel Edge handler
+export const GET = handle(app)
+export const POST = handle(app)
+export const PUT = handle(app)
+export const DELETE = handle(app)
+export const PATCH = handle(app)
+export const HEAD = handle(app)
+export const OPTIONS = handle(app) 
